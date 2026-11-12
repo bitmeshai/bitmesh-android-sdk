@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "ai.bitmesh"
-version = "1.0.0"
+version = "1.1.0"
 
 android {
     namespace = "ai.bitmesh"
@@ -32,14 +32,17 @@ android {
 }
 
 dependencies {
-    // The only runtime dependency: suspend calls and Flow for streamed replies.
-    // HTTP is HttpURLConnection and JSON is org.json, both built into Android.
+    // Suspend calls and Flow for streamed replies. HTTP is HttpURLConnection and
+    // JSON is org.json, both built into Android.
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    // The real-time transcription WebSocket only: HttpURLConnection can't open one.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     // Android's org.json is a stub in local unit tests.
     testImplementation("org.json:json:20250517")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
 publishing {

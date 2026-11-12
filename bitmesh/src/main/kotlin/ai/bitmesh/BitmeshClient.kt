@@ -113,6 +113,46 @@ public class BitmeshClient(apiKey: String, public val options: BitmeshOptions = 
     public suspend fun getTranscribeRecorded(id: String, query: Map<String, String> = emptyMap()): JSONObject =
         transport.json("GET", "transcribe-recorded/${segment(id, "Transcription job id")}", query = query)
 
+    /**
+     * Opens a real-time transcription session: a WebSocket to
+     * `/v2/transcribe-realtime`. Send audio as it is recorded and the transcript
+     * comes back turn by turn; see [RealtimeTranscription]. Returns once the
+     * session has begun.
+     *
+     * @param sampleRate sample rate of the audio you will send, in Hz.
+     * @param speechModel one of [RealtimeSpeechModel] (default `universal-3-6-pro`).
+     * @param encoding `pcm_s16le` (default) or `pcm_mulaw`.
+     * @param formatTurns punctuate and case final turns of the `universal-streaming-*` models.
+     * @param languageDetection add the language to each turn.
+     * @param query further connection settings of the transcription service.
+     * @throws BitmeshApiException when the connection is refused, before any
+     *   audio is sent: 401 (key or App Check), 402 (less than a minute's
+     *   balance), 403, 422 (settings), 429 (too many sessions open on the key) or 502.
+     */
+    public suspend fun transcribeRealtime(
+        sampleRate: Int = 16_000,
+        speechModel: String? = null,
+        encoding: String? = null,
+        formatTurns: Boolean? = null,
+        languageDetection: Boolean? = null,
+        query: Map<String, String> = emptyMap(),
+    ): RealtimeTranscription {
+        require(sampleRate > 0) { "sampleRate must be positive." }
+        val settings = buildMap {
+            put("sample_rate", sampleRate.toString())
+            speechModel?.let { put("speech_model", it) }
+            encoding?.let { put("encoding", it) }
+            formatTurns?.let { put("format_turns", it.toString()) }
+            languageDetection?.let { put("language_detection", it.toString()) }
+            putAll(query)
+        }
+        return RealtimeTranscription.open(
+            transport.apiUrl("transcribe-realtime", settings).toString(),
+            transport.authenticatedHeaders(),
+            options,
+        )
+    }
+
     // Tools
 
     /** `POST /v2/tools/general/background-removal`. */

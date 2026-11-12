@@ -1,15 +1,16 @@
 # Bitmesh Android SDK
 
 Kotlin library for the [Bitmesh AI API](https://bitmesh.ai) **v2** on Android:
-chat (streaming included), image, video, transcription, tools and the provider
-proxy, with Firebase App Check for mobile keys.
+chat (streaming included), image, video, transcription (real-time included),
+tools and the provider proxy, with Firebase App Check for mobile keys.
 
 v2 takes one bearer key (`bmk_...`), so there is nothing to sign. The SDK adds
 what an app would otherwise write itself: the App Check token on every request,
 streamed replies as a `Flow`, retries, multipart uploads and typed errors.
 
-- **One runtime dependency:** `kotlinx-coroutines-core`. HTTP is
-  `HttpURLConnection` and JSON is `org.json`, both built into Android.
+- **Two runtime dependencies:** `kotlinx-coroutines-core`, and OkHttp for the
+  real-time transcription WebSocket only. Other HTTP is `HttpURLConnection`
+  and JSON is `org.json`, both built into Android.
 - No Firebase dependency: you pass a function that returns the token.
 - Android 6.0 (API 23) and later.
 
@@ -31,7 +32,7 @@ Then the dependency, in your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.bitmeshai:bitmesh-android-sdk:1.0.0")
+    implementation("com.github.bitmeshai:bitmesh-android-sdk:1.1.0")
 }
 ```
 
@@ -166,6 +167,7 @@ val cutout = client.toolsGeneralBackgroundRemoval(
 | `getVideo(id, query)` | `GET /video/{id}` |
 | `transcribeFile(audio, fields)` | `POST /transcribe-recorded` |
 | `getTranscribeRecorded(id, query)` | `GET /transcribe-recorded/{id}` |
+| `transcribeRealtime(sampleRate, speechModel, ...)` | WebSocket `/transcribe-realtime`, see below |
 | `toolsGeneralBackgroundRemoval(image, fields)` | `POST /tools/general/background-removal` |
 | `toolsPortraitTryOnClothes(files, fields)` | `POST /tools/portrait/try-on-clothes` |
 | `toolsQueryAsyncTaskResult(taskId)` | `POST /tools/query-async-task-result` |
@@ -178,6 +180,47 @@ val cutout = client.toolsGeneralBackgroundRemoval(
 Multipart fields travel as text: `true`/`false` as `1`/`0`, numbers as their
 string form, `null`s left out. From a content `Uri`, read the bytes with
 `contentResolver.openInputStream(uri)` and use `BitmeshFile.fromBytes`.
+
+## Real-time transcription
+
+Stream audio as it is recorded and get the transcript turn by turn, over a
+WebSocket to `/v2/transcribe-realtime`.
+
+```kotlin
+val session = client.transcribeRealtime(
+    sampleRate = 16_000,
+    speechModel = RealtimeSpeechModel.UNIVERSAL_3_6_PRO, // the default
+)
+
+scope.launch {
+    session.events.collect { event ->
+        // The same turn arrives again as it grows; keep the final one.
+        if (event is RealtimeEvent.Turn && event.endOfTurn) println(event.transcript)
+    }
+}
+
+// From AudioRecord (16 kHz, ENCODING_PCM_16BIT, mono), about 50 ms (1,600 bytes) at a time
+session.sendAudio(buffer, 0, read)
+
+val end = session.terminate()
+println("${end?.sessionDurationSeconds} s billed")
+```
+
+- `transcribeRealtime` returns once the session has begun. A refused connection
+  throws `BitmeshApiException` before any audio is sent: `402` when the balance
+  covers less than a minute, `429` when the key already has 5 sessions open,
+  `422` for unknown settings.
+- `session.events` ends when the session closes, throwing
+  `BitmeshRealtimeClosedException` for a close other than a normal one: `3008`
+  at the time limit (an hour, or what the balance covers), `1001` when the
+  server restarts, `1011` when the transcription service fails.
+- The session is billed per second it is open, silence included: call
+  `terminate()` as soon as you are done.
+- Models: `universal-3-6-pro` (32 languages), `universal-streaming-english`,
+  `universal-streaming-multilingual`. `formatTurns = true` punctuates the
+  streaming models; `languageDetection = true` adds `languageCode` to each
+  turn. `forceEndpoint()` ends the current turn now.
+- The app needs the `RECORD_AUDIO` permission for the microphone.
 
 ## Proxy
 
@@ -245,11 +288,14 @@ BitmeshOptions(
 ./gradlew :bitmesh:testDebugUnitTest
 ```
 
-Unit tests run against a local `HttpServer`. Live tests call the API and are
-skipped unless you set a v2 hosted key (and, for the proxy, a proxy key):
+Unit tests run against a local `HttpServer` and, for real-time transcription,
+OkHttp's `MockWebServer`. Live tests call the API and are skipped unless you set
+a v2 hosted key (and, for the proxy, a proxy key; for real-time, a 16 kHz 16-bit
+mono PCM file):
 
 ```bash
-BITMESH_TEST_API_KEY=bmk_... BITMESH_TEST_PROXY_KEY=bmk_... ./gradlew :bitmesh:testDebugUnitTest
+BITMESH_TEST_API_KEY=bmk_... BITMESH_TEST_PROXY_KEY=bmk_... \
+BITMESH_TEST_AUDIO_PCM=clip.pcm ./gradlew :bitmesh:testDebugUnitTest
 ```
 
 ## License

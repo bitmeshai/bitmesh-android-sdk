@@ -1,5 +1,8 @@
 package ai.bitmesh
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -15,7 +18,8 @@ import org.junit.Test
  *
  * Optional: BITMESH_TEST_BASE_URL, BITMESH_TEST_MODEL, BITMESH_TEST_PROXY_PROVIDER,
  * BITMESH_TEST_PROXY_PATH, BITMESH_TEST_PROXY_MODEL. Chat calls are real and charged
- * (fractions of a cent); tools run in test mode.
+ * (fractions of a cent); tools run in test mode. The real-time test also needs
+ * BITMESH_TEST_AUDIO_PCM (16 kHz 16-bit mono PCM); a 20 s clip costs about 0.002.
  */
 class LiveApiTest {
     private fun env(name: String): String? = System.getenv(name)?.takeIf { it.isNotBlank() }
@@ -89,5 +93,42 @@ class LiveApiTest {
         val events = client.proxyStream(provider, path, body).toList()
         assertTrue(events.size > 2)
         assertTrue(events.last().isDone)
+    }
+
+    @Test
+    fun realtimeTranscription() = runBlocking<Unit> {
+        val client = hosted()
+        val path = env("BITMESH_TEST_AUDIO_PCM")
+        assumeTrue("Set BITMESH_TEST_AUDIO_PCM to run the real-time test", path != null)
+        val audio = java.io.File(path!!).readBytes()
+
+        val session = client.transcribeRealtime(
+            speechModel = RealtimeSpeechModel.UNIVERSAL_STREAMING_ENGLISH,
+            formatTurns = true,
+        )
+        assertTrue(session.begin.id.isNotEmpty())
+        val turns = async {
+            session.events.filterIsInstance<RealtimeEvent.Turn>().toList().filter { it.endOfTurn }.map { it.transcript }
+        }
+
+        for (offset in audio.indices step 1600) {
+            session.sendAudio(audio, offset, minOf(1600, audio.size - offset))
+            delay(50)
+        }
+        val end = session.terminate()
+        val transcript = turns.await().joinToString(" ")
+
+        println("Transcript: $transcript")
+        assertTrue(transcript.isNotEmpty())
+        assertEquals(1000, session.closeCode)
+        assertEquals(audio.size / 32000.0, end?.audioDurationSeconds ?: 0.0, 1.5)
+        assertTrue((end?.sessionDurationSeconds ?: 0.0) > 0)
+
+        try {
+            BitmeshClient("bmk_not_a_key", BitmeshOptions(baseUrl = baseUrl)).transcribeRealtime()
+            throw AssertionError("Expected 401")
+        } catch (e: BitmeshApiException) {
+            assertEquals(401, e.statusCode)
+        }
     }
 }

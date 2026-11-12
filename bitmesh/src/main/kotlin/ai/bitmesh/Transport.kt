@@ -200,6 +200,17 @@ internal class Transport(private val apiKey: String, private val options: Bitmes
         }
     }
 
+    /**
+     * The headers of an authenticated request: defaults, `User-Agent`, the key
+     * and the App Check or debug token. For the real-time transcription
+     * WebSocket, which this transport doesn't send itself.
+     */
+    suspend fun authenticatedHeaders(): Map<String, String> = buildMap {
+        putAll(options.defaultHeaders)
+        options.userAgent?.let { put("User-Agent", it) }
+        putAll(authHeaders())
+    }
+
     private suspend fun authHeaders(): Map<String, String> {
         val headers = mutableMapOf("Authorization" to "Bearer $apiKey")
         val debugToken = options.debugToken

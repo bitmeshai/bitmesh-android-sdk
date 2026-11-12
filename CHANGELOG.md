@@ -1,3 +1,17 @@
+## 1.1.0
+
+- Real-time transcription: `client.transcribeRealtime(...)` opens a WebSocket
+  to `/v2/transcribe-realtime` and returns a `RealtimeTranscription` once the
+  session has begun. Send audio with `sendAudio`, collect `RealtimeEvent.Begin`,
+  `Turn` and `Termination` from `events`, and end it with `terminate()`.
+  `forceEndpoint()` and `send(message)` send control messages.
+- A refused connection throws `BitmeshApiException` (`401`, `402`, `422`,
+  `429`, ...) before any audio is sent. A session that closes other than
+  normally ends `events` with `BitmeshRealtimeClosedException` (`3008` at the
+  time limit).
+- `RealtimeSpeechModel` names the three real-time models.
+- New dependency: OkHttp 4.12, for the WebSocket only.
+
 ## 1.0.0
 
 First release, for the Bitmesh API v2.
